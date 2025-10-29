@@ -12,6 +12,7 @@ from modules.encryption import DataManip
 from modules.exceptions import UserExits, PasswordFileDoesNotExist
 from modules.menu import Manager
 
+# Testing 1, 2, 3
 def exit_program():
     print(colored("Exiting...", "red"))
     sys.exit()
