@@ -1,5 +1,6 @@
+# --- Original project dependencies ---
 astroid==2.3.3
-colorama==0.4.3
+colorama==0.4.6            # upgraded from 0.4.3 for compatibility
 cursor==1.3.4
 halo==0.0.28
 isort==4.3.21
@@ -14,3 +15,18 @@ spinners==0.0.23
 termcolor==1.1.0
 typed-ast==1.4.0
 wrapt==1.11.2
+cryptography==43.0.1        
+bcrypt==4.2.0              
+pyotp==2.9.0                
+getpass4==0.1.0             
+secrets==1.0.2            
+tabulate==0.9.0             
+python-dateutil==2.9.0.post0 
+loguru==0.7.2               
+jsonschema==4.23.0        
+pathlib2==2.3.7.post1      
+bandit==1.7.8               
+pip-audit==2.7.3            
+safety==3.1.0               
+pytest==8.3.3               
+pytest-cov==6.0.0           
