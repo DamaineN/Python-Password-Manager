@@ -1,4 +1,8 @@
 # Python Password Manager
+
+Forked from: https://github.com/clxmente/Python-Password-Manager
+And changed for Security Group Assignment for Semester 1 Year 3 of Bachelor's Degree. 
+
 >Note: This password manager was made as a project and is NOT intended for actual use. Please use more sophisticated and well-tested/trusted password managers to store sensitive data.
 
 ## Demo
