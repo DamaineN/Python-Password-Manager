@@ -6,12 +6,50 @@ import string
 import hashlib
 import threading
 import time
+import requests
 
 from Crypto.Cipher import AES
 from termcolor import colored
 from halo import Halo
 
 from modules.exceptions import PasswordFileDoesNotExist, PasswordFileIsEmpty, PasswordNotFound
+
+class ServerAPI:
+    def __init__(self, base_url="https://localhost:5000"):
+        self.base_url = base_url
+        self.verify = "cert.pem"  # path to your server cert
+
+    def encrypt_data(self, password, website, data):
+        resp = requests.post(
+            f"{self.base_url}/encrypt",
+            json={"password": password, "website": website, "data": data},
+            verify=self.verify
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def decrypt_data(self, password, website, salt):
+        resp = requests.post(
+            f"{self.base_url}/decrypt",
+            json={"password": password, "website": website, "salt": salt},
+            verify=self.verify
+        )
+        resp.raise_for_status()
+        return resp.json()["decrypted"]
+
+    def list_passwords(self):
+        resp = requests.get(f"{self.base_url}/list", verify=self.verify)
+        resp.raise_for_status()
+        return resp.json()["stored_passwords"]
+
+    def delete_password(self, website):
+        resp = requests.post(
+            f"{self.base_url}/delete",
+            json={"website": website},
+            verify=self.verify
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 class DataManip:
     def __init__(self):
@@ -151,14 +189,11 @@ class DataManip:
         else:
             raise PasswordFileDoesNotExist
 
-    def delete_all_data(self, filename, master_file):
-        """Delete both master (users) file and password file. Used when admin requests total wipe."""
-        # Remove password file and users file (master_file)
-        if os.path.isfile(filename):
-            with open(filename, 'w') as jdata:
-                json.dump({}, jdata)
+    def delete_all_passwords(self, user):
+        filename = f"db/passwords_{user}.json"
+        if os.path.exists(filename):
             os.remove(filename)
-        if os.path.isfile(master_file):
-            with open(master_file, 'w') as jdata:
-                json.dump({}, jdata)
-            os.remove(master_file)
+        else:
+            raise FileNotFoundError("Password file not found")
+
+

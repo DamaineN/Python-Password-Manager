@@ -8,6 +8,7 @@ import time
 import re
 import uuid
 from datetime import datetime, timedelta
+import requests
 
 from termcolor import colored
 from halo import Halo
@@ -19,6 +20,7 @@ from modules.exceptions import UserExits, PasswordFileDoesNotExist, AccountExist
 
 USERS_FILE = "db/users.json"
 PASSWORDS_FILE = "db/passwords.json"
+SERVER_CERT = os.path.join(os.path.dirname(__file__), "server", "cert.pem")
 
 # session & policy config
 FAILED_ATTEMPTS = {}          # in-memory attempts (per run)
@@ -133,6 +135,11 @@ def register():
     save_users(users)
     print(colored(f"User {username} created with role {role}. You may login now.", "green"))
 
+    user_file = f"db/passwords_{username}.json"
+    if not os.path.exists(user_file):
+        with open(user_file, 'w') as f:
+            json.dump({}, f)
+
 def register_flow():
     try:
         register()
@@ -198,7 +205,8 @@ def login():
         session_expires = datetime.utcnow() + timedelta(minutes=SESSION_TIMEOUT_MIN)
         # return username, role, key_bytes and session info
         print(colored(f"{dm.checkmark_} Welcome {username}! Role: {rec['role']}", "green"))
-        return username, rec['role'], key_bytes, {"token": session_token, "expires_at": session_expires.isoformat()}
+        # at the end of a successful login
+        return username, rec['role'], key_bytes, {"token": session_token, "expires_at": session_expires.isoformat()}, password
     else:
         # wrong password -> increment both persistent and in-memory counters
         rec["failed_attempts"] = rec.get("failed_attempts", 0) + 1
@@ -225,17 +233,25 @@ def start():
     while True:
         try:
             result = login()
-            if isinstance(result, tuple) and len(result) == 4:
-                username, role, key_bytes, session_info = result
+            if isinstance(result, tuple) and len(result) == 5:   # now 5 values
+                username, role, key_bytes, session_info, master_password = result
                 if username is None:
                     continue
-                # pass session info into Manager
                 from modules.menu import Manager
-                menu = Manager(obj, PASSWORDS_FILE, username, role, key_bytes, session_info)
+                menu = Manager(
+                obj,
+                PASSWORDS_FILE,
+                username,
+                role,
+                key_bytes,       # matches __init__ key_bytes
+                master_password, # now matches __init__ master_password
+                session_info     # now matches __init__ session_info
+                )
                 try:
                     menu.begin()
                 except UserExits:
                     exit_program()
+
             else:
                 # login failed or action completed
                 pass

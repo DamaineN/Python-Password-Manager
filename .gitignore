@@ -1,2 +1,5 @@
 db/users.json
 logs/activity.log
+server/passwords.json
+db
+module/__pycache__
