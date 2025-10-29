@@ -31,3 +31,6 @@ class InvalidCredentials(Exception):
 
 class AccountLocked(Exception):
     pass
+
+class SessionExpired(Exception):
+    pass

@@ -1,7 +1,10 @@
 {
-    "Damaine": {
-        "password": "1ed975b9e61f397bc0796e9552cde435e57ab056af03ded2ba0a767b3e358154",
-        "salt": "d235f6344d1c440863edf1ff5d36c587",
-        "role": "user"
+    "Damaine334": {
+        "password": "561d49105cd4b29ff6b239c0985f0080aef278ee09b98e083ee26fccd6409a0a",
+        "salt": "22cee0be1f0d316c7209b222e34f7a66",
+        "role": "user",
+        "2fa_secret": "5MBR22BCMZR2A7JDUW3QVIOOJHB53LVC",
+        "failed_attempts": 0,
+        "lockout_until": null
     }
 }
