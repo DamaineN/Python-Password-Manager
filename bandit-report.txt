@@ -1,0 +1,224 @@
+Run started:2025-11-06 07:17:57.099247
+
+Test results:
+>> Issue: [B413:blacklist] The pyCrypto library and its module AES are no longer actively maintained and have been deprecated. Consider using pyca/cryptography library.
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b413-import-pycrypto
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:11:0
+10	
+11	from Crypto.Cipher import AES
+12	from termcolor import colored
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:23:15
+22	    def encrypt_data(self, password, website, data):
+23	        resp = requests.post(
+24	            f"{self.base_url}/encrypt",
+25	            json={"password": password, "website": website, "data": data},
+26	            verify=self.verify
+27	        )
+28	        resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:32:15
+31	    def decrypt_data(self, password, website, salt):
+32	        resp = requests.post(
+33	            f"{self.base_url}/decrypt",
+34	            json={"password": password, "website": website, "salt": salt},
+35	            verify=self.verify
+36	        )
+37	        resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:41:15
+40	    def list_passwords(self):
+41	        resp = requests.get(f"{self.base_url}/list", verify=self.verify)
+42	        resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:46:15
+45	    def delete_password(self, website):
+46	        resp = requests.post(
+47	            f"{self.base_url}/delete",
+48	            json={"website": website},
+49	            verify=self.verify
+50	        )
+51	        resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:148:32
+147	            for i in range(0, int(length)):
+148	                password.append(random.choice(random.choice([string.ascii_lowercase, string.ascii_uppercase, string.digits, self.specialChar_])))
+149	            finalPass = "".join(password)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: C:\Users\damai\Python-Password-Manager\modules\encryption.py:148:46
+147	            for i in range(0, int(length)):
+148	                password.append(random.choice(random.choice([string.ascii_lowercase, string.ascii_uppercase, string.digits, self.specialChar_])))
+149	            finalPass = "".join(password)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:65:8
+64	            self._populate_salts_from_server()
+65	        except Exception:
+66	            pass
+67	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:165:8
+164	            logging.info(f"{self.user_} clipboard cleared after delay")
+165	        except Exception:
+166	            pass
+167	
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:316:23
+315	            try:
+316	                resp = requests.post(f"{SERVER_URL}/delete", json=payload, verify=SERVER_CERT)
+317	                resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:341:23
+340	            try:
+341	                resp = requests.post(f"{SERVER_URL}/delete_all_passwords", json=payload, verify=SERVER_CERT)
+342	                resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:373:23
+372	            try:
+373	                resp = requests.post(f"{SERVER_URL}/delete_all_data", json=payload, verify=SERVER_CERT)
+374	                resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:411:19
+410	        try:
+411	            resp = requests.post(f"{SERVER_URL}/encrypt", json=payload, verify=SERVER_CERT)
+412	            resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:462:19
+461	            # include the user as query parameter
+462	            resp = requests.get(f"{SERVER_URL}/list", params={"user": self.user_}, verify=SERVER_CERT)
+463	            resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: C:\Users\damai\Python-Password-Manager\modules\menu.py:470:12
+469	                print("Response content:", resp.json())
+470	            except Exception:
+471	                pass
+472	            return {}
+
+--------------------------------------------------
+>> Issue: [B413:blacklist] The pyCrypto library and its module AES are no longer actively maintained and have been deprecated. Consider using pyca/cryptography library.
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b413-import-pycrypto
+   Location: C:\Users\damai\Python-Password-Manager\server\app.py:7:0
+6	from flask_cors import CORS
+7	from Crypto.Cipher import AES
+8	
+
+--------------------------------------------------
+>> Issue: [B413:blacklist] The pyCrypto library and its module AES are no longer actively maintained and have been deprecated. Consider using pyca/cryptography library.
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b413-import-pycrypto
+   Location: C:\Users\damai\Python-Password-Manager\server\app.py:121:8
+120	
+121	        from Crypto.Cipher import AES
+122	        cipher = AES.new(key_bytes, AES.MODE_EAX, nonce=nonce_bytes)
+
+--------------------------------------------------
+>> Issue: [B201:flask_debug_true] A Flask app appears to be run with debug=True, which exposes the Werkzeug debugger and allows the execution of arbitrary code.
+   Severity: High   Confidence: Medium
+   CWE: CWE-94 (https://cwe.mitre.org/data/definitions/94.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b201_flask_debug_true.html
+   Location: C:\Users\damai\Python-Password-Manager\server\app.py:302:8
+301	        print("✅ Server running at https://localhost:5000")
+302	        app.run(host="0.0.0.0", port=5000, ssl_context=(cert_path, key_path), debug=True)
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: C:\Users\damai\Python-Password-Manager\server\app.py:302:21
+301	        print("✅ Server running at https://localhost:5000")
+302	        app.run(host="0.0.0.0", port=5000, ssl_context=(cert_path, key_path), debug=True)
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 1068
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 5
+		Medium: 10
+		High: 4
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 9
+		Medium: 2
+		High: 8
+Files skipped (0):

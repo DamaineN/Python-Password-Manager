@@ -3,3 +3,8 @@ logs/activity.log
 server/passwords.json
 db
 module/__pycache__
+
+.syskey/
+db/*.enc
+db/*.json   # OPTIONAL - if you want to avoid accidentally committing plaintext
+db_backup/

@@ -1,6 +1,6 @@
 # --- Original project dependencies ---
 astroid==2.3.3
-colorama==0.4.6            # upgraded from 0.4.3 for compatibility
+colorama==0.4.6            
 cursor==1.3.4
 halo==0.0.28
 isort==4.3.21

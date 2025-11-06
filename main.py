@@ -37,18 +37,36 @@ def ensure_db_dirs():
         os.mkdir("logs")
     except FileExistsError:
         pass
+    # ensure system key exists (DataManip will create it on init)
+    DataManip()  # instantiation ensures .syskey exists on first run
+
+def _enc_path(path: str) -> str:
+    return path + ".enc" if not path.endswith(".enc") else path
 
 def load_users():
     ensure_db_dirs()
-    if not os.path.isfile(USERS_FILE):
-        with open(USERS_FILE, 'w') as f:
-            json.dump({}, f)
-    with open(USERS_FILE, 'r') as f:
-        return json.load(f)
+    enc = _enc_path(USERS_FILE)
+    dm = DataManip()
+    if not os.path.exists(enc):
+        # create empty dict in-memory and persist encrypted (never write plaintext)
+        tmp = {} 
+        # write to a temp file and immediately encrypt OR call encrypt_json on temp file content
+        # we'll write temp file then call encrypt_json (encrypt_json expects a plaintext file path), so create temp plaintext then encrypt and remove it
+        tmp_path = USERS_FILE  # like db/users.json (plaintext temporary)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(tmp, f, indent=4)
+        dm.encrypt_json(tmp_path)  # this writes users.json.enc and removes tmp_path
+    # now decrypt and return dict
+    users = dm.decrypt_json(enc)
+    return users
 
-def save_users(users):
-    with open(USERS_FILE, 'w') as f:
+def save_users(users: dict):
+    dm = DataManip()
+    # write plaintext to temp path, then encrypt it
+    tmp_path = USERS_FILE
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(users, f, indent=4)
+    dm.encrypt_json(tmp_path)
 
 def hash_password(password: str, salt_hex: str = None):
     """Return (hash_hex, salt_hex) using PBKDF2-HMAC-SHA256."""
@@ -136,9 +154,14 @@ def register():
     print(colored(f"User {username} created with role {role}. You may login now.", "green"))
 
     user_file = f"db/passwords_{username}.json"
-    if not os.path.exists(user_file):
-        with open(user_file, 'w') as f:
-            json.dump({}, f)
+    enc_path = user_file + ".enc"
+    dm = DataManip()
+    if not os.path.exists(enc_path):
+        # create an empty plaintext temp and encrypt immediately
+        with open(user_file, 'w', encoding='utf-8') as f:
+            json.dump({}, f, indent=4)
+        dm.encrypt_json(user_file)
+
 
 def register_flow():
     try:

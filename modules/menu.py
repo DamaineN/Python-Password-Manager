@@ -45,10 +45,16 @@ class Manager:
         self.key_ = DataManip.derive_key(master_password)[0]  # bytes
         self.salts = {}  # store salt per website
 
-        # session authentication
-        self.session_token = session_info.get("token")
-        self.session_expires = datetime.fromisoformat(session_info.get("expires_at"))
-
+        # Validate session info structure
+        try:
+            self.session_token = session_info.get("token")
+            expires_raw = session_info.get("expires_at")
+            self.session_expires = datetime.fromisoformat(expires_raw) if expires_raw else datetime.now()
+        except Exception as e:
+            logging.error(f"Session info invalid: {e}")
+            self.session_token = None
+            self.session_expires = datetime.now()
+            
         # optional overrides
         self.encrypt_fn = encrypt_fn
         self.decrypt_fn = decrypt_fn
@@ -58,55 +64,90 @@ class Manager:
             choice = self.menu_prompt()
         except UserExits:
             raise UserExits
+        except Exception as e:
+            logging.error(f"Menu input error: {e}")
+            print(colored("Invalid input or unexpected error. Please try again.", "red"))
+            return self.begin()
 
         # populate salts on menu begin (best-effort)
         try:
             self._populate_salts_from_server()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Failed to populate salts: {e}")
 
-        if choice == '4': # User Exits
+        # Validate menu choice
+        valid_choices = {'1', '2', '3', '4', '5', '6', '7'}
+        if choice not in valid_choices:
+            print(colored("Invalid menu option. Please select 1–7.", "red"))
+            return self.begin()
+
+        if choice == '4':  # User Exits
             print(colored("Exiting program...", "red"))
             sys.exit()
 
-        if choice == '1': # add or update a password
+        if choice == '1':  # add or update a password
             try:
                 self.update_db()
-                return self.begin()
             except UserExits:
-                raise UserExits
+                raise
+            except Exception as e:
+                logging.error(f"Error updating DB: {e}")
+                print(colored("An error occurred while updating password. Please try again.", "red"))
+            return self.begin()
 
         elif choice == '2':  # look up a stored password
             try:
-                website, password = self.load_password()  # now a tuple
+                website, password = self.load_password()
+                if not website or not password:
+                    print(colored("No password found or invalid data returned.", "red"))
+                    return self.begin()
+
                 print(colored(f"Password for {website}: {password}", "yellow"))
 
-                copy_to_clipboard = input("Copy password to clipboard? (Y/N): ").strip()
-                if copy_to_clipboard.lower() == "exit":
+                try:
+                    copy_to_clipboard = input("Copy password to clipboard? (Y/N): ").strip().lower()
+                except EOFError:
+                    print(colored("Input interrupted. Returning to menu.", "red"))
+                    return self.begin()
+                except Exception as e:
+                    logging.error(f"Clipboard prompt error: {e}")
+                    print(colored("Invalid input. Returning to menu.", "red"))
+                    return self.begin()
+
+                if copy_to_clipboard == "exit":
                     raise UserExits
-                elif copy_to_clipboard.lower() == 'y':
+                elif copy_to_clipboard == 'y':
                     try:
-                        import pyperclip
                         pyperclip.copy(password)
                         logging.info(f"{self.user_} copied password for {website}")
                         threading.Thread(target=self._clear_clipboard_later, daemon=True).start()
                         print(colored(f"{self.obj_.checkmark_} Password copied to clipboard (will clear after 30s)", "green"))
                     except pyperclip.PyperclipException:
-                        print(colored(f"{self.obj_.x_mark_} Clipboard not available. {self.obj_.x_mark_}", "red"))
-                return self.begin()
+                        print(colored(f"{self.obj_.x_mark_} Clipboard not available {self.obj_.x_mark_}", "red"))
+                    except Exception as e:
+                        logging.error(f"Clipboard copy failed: {e}")
+                        print(colored("Unexpected error copying password to clipboard.", "red"))
+
             except UserExits:
-                raise UserExits
+                raise
             except PasswordFileDoesNotExist:
                 print(colored(f"{self.obj_.x_mark_} DB not found. Try adding a password {self.obj_.x_mark_}", "red"))
-                return self.begin()
-            
-        elif choice == '3': # Delete a single password
+            except Exception as e:
+                logging.error(f"Error during password lookup: {e}")
+                print(colored("An error occurred while retrieving password. Please try again.", "red"))
+            return self.begin()
+
+        elif choice == '3':  # Delete a single password
             try:
                 return self.delete_password()
             except UserExits:
-                raise UserExits
+                raise
+            except Exception as e:
+                logging.error(f"Error deleting password: {e}")
+                print(colored("An error occurred while deleting password. Please try again.", "red"))
+                return self.begin()
 
-        elif choice == '5': # Delete DB of Passwords
+        elif choice == '5':  # Delete DB of Passwords
             if self.role_ != 'admin':
                 print(colored("Permission denied: Admin only.", "red"))
                 return self.begin()
@@ -114,11 +155,14 @@ class Manager:
                 self.delete_db()
             except MasterPasswordIncorrect:
                 print(colored(f"{self.obj_.x_mark_} Master password is incorrect {self.obj_.x_mark_}", "red"))
-                return self.begin()
             except UserExits:
-                raise UserExits
+                raise
+            except Exception as e:
+                logging.error(f"Error deleting DB: {e}")
+                print(colored("An unexpected error occurred while deleting DB.", "red"))
+            return self.begin()
 
-        elif choice == '6': # delete ALL data (admin)
+        elif choice == '6':  # delete ALL data (admin)
             if self.role_ != 'admin':
                 print(colored("Permission denied: Admin only.", "red"))
                 return self.begin()
@@ -126,16 +170,24 @@ class Manager:
                 self.delete_all_data()
             except MasterPasswordIncorrect:
                 print(colored(f"{self.obj_.x_mark_} Master password is incorrect {self.obj_.x_mark_}", "red"))
-                return self.begin()
             except UserExits:
-                raise UserExits
+                raise
+            except Exception as e:
+                logging.error(f"Error deleting all data: {e}")
+                print(colored("An unexpected error occurred while deleting all data.", "red"))
+            return self.begin()
 
-        elif choice == '7': # admin: view logs
+        elif choice == '7':  # admin: view logs
             if self.role_ != 'admin':
                 print(colored("Permission denied: Admin only.", "red"))
                 return self.begin()
-            self.view_logs()
+            try:
+                self.view_logs()
+            except Exception as e:
+                logging.error(f"Error viewing logs: {e}")
+                print(colored("Failed to read logs.", "red"))
             return self.begin()
+
 
     def menu_prompt(self):
         print(colored("\n\t*Enter 'exit' at any point to exit.*\n", "magenta"))
@@ -413,14 +465,22 @@ class Manager:
             salt = resp.json().get("salt")
             self.salts[website] = salt
 
-            # Update local JSON to store salt
             user_file = f"db/passwords_{self.user_}.json"
-            if os.path.exists(user_file):
-                with open(user_file, 'r') as f:
-                    j = json.load(f)
-                j[website]["salt"] = salt  # store salt
-                with open(user_file, 'w') as f:
-                    json.dump(j, f, indent=4)
+            enc_path = user_file + ".enc"
+            dm = DataManip()
+            if os.path.exists(enc_path):
+                j = dm.decrypt_json(enc_path)
+            else:
+                j = {}
+            # set salt (ensure website entry exists)
+            if website not in j:
+                j[website] = {}
+            j[website]["salt"] = salt
+            # persist via encrypt_json
+            tmp_path = user_file
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(j, f, indent=4)
+            dm.encrypt_json(tmp_path)
 
             print(colored(f"✓ Password for {website} stored securely on server.", "green"))
         except Exception as e:
@@ -473,14 +533,3 @@ class Manager:
         except Exception as e:
             print(colored(f"✗ Server list passwords failed: {e}", "red"))
             return {}
-
-
-
-
-
-
-
-
-
-
-
