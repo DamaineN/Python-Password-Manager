@@ -268,7 +268,7 @@ if __name__ == "__main__":
     key_path = os.path.join(os.path.dirname(__file__), "key.pem")
 
     if not (os.path.exists(cert_path) and os.path.exists(key_path)):
-        print("❌ Missing cert.pem or key.pem — generate them first.")
+        print("Missing cert.pem or key.pem — generate them first using server/servercerts.py.")
     else:
-        print("✅ Server running at https://localhost:5000")
+        print("Server running at https://localhost:5000")
         app.run(host="0.0.0.0", port=5000, ssl_context=(cert_path, key_path), debug=True)
