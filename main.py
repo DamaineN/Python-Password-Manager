@@ -17,6 +17,7 @@ import pyotp
 
 from modules.encryption import DataManip
 from modules.exceptions import UserExits, PasswordFileDoesNotExist, AccountExists, InvalidCredentials, AccountLocked
+from modules.admin_invite import validate_and_consume_invite
 
 USERS_FILE = "db/users.json"
 PASSWORDS_FILE = "db/passwords.json"
@@ -99,9 +100,13 @@ def check_password_policy(pw: str):
         return False, "Include at least one special character."
     return True, "OK"
 
+
+# ... inside main.py ...
+
 def register():
     users = load_users()
     print(colored("Register new user (type 'exit' to cancel)", "green"))
+
     username = input("Enter username: ").strip()
     if username.lower() == "exit":
         raise UserExits
@@ -115,33 +120,61 @@ def register():
     password = getpass.getpass("Enter password: ")
     if password.lower().strip() == "exit":
         raise UserExits
+
     valid, msg = check_password_policy(password)
     if not valid:
         print(colored("Password policy violation: " + msg, "red"))
         return register()
+
     confirm = getpass.getpass("Confirm password: ")
     if password != confirm:
         print(colored("Passwords do not match.", "red"))
         return register()
 
-    # role selection (admin/user)
-    role = input("Role (admin/user) [default: user]: ").strip().lower()
-    if role not in ("admin", "user"):
-        role = "user"
+    # -------------------------
+    #  ADMIN SETUP VIA INVITE
+    # -------------------------
+    role_input = input("Role (user/admin) [default: user]: ").strip().lower()
+    role = "user"   # default
 
-    # 2FA opt-in
+    if role_input == "admin":
+        print(colored("This application uses single-use admin invites. You must provide a valid invite token.", "yellow"))
+        # allow a few attempts at entering the invite token (protects against casual guessing)
+        max_invite_attempts = 5
+        attempts = 0
+        got_admin = False
+        while attempts < max_invite_attempts:
+            attempts += 1
+            invite_token = getpass.getpass(f"Enter admin invite token (attempt {attempts}/{max_invite_attempts}): ").strip()
+            if invite_token.lower() == "exit":
+                raise UserExits
+            if not invite_token:
+                print(colored("No token provided — registering as normal user.", "red"))
+                break
+            rec = validate_and_consume_invite(invite_token, consume=True)
+            if rec:
+                print(colored("Admin invite accepted. Creating admin account.", "green"))
+                role = "admin"
+                got_admin = True
+                break
+            else:
+                print(colored("Invalid or expired invite token.", "red"))
+        if not got_admin and role != "admin":
+            print(colored("Failed to validate admin invite — continuing as normal user.", "red"))
+
+    # 2FA setup
     enable_2fa = input("Enable TOTP 2FA now? (Y/N) [recommended for admin]: ").strip().lower()
     if enable_2fa == 'y':
         secret = pyotp.random_base32()
         totp = pyotp.TOTP(secret)
         provisioning_uri = totp.provisioning_uri(name=username, issuer_name="SecureCLI-Passman")
-        print(colored("Save this secret in your authenticator app (or scan). URI shown for convenience:", "yellow"))
+        print(colored("Scan this in your authenticator app:", "yellow"))
         print(provisioning_uri)
     else:
         secret = None
 
     hashed, salt = hash_password(password)
-    # store structure with lockout fields
+
     users[username] = {
         "password": hashed,
         "salt": salt,
@@ -151,16 +184,19 @@ def register():
         "lockout_until": None
     }
     save_users(users)
+
     print(colored(f"User {username} created with role {role}. You may login now.", "green"))
 
+    # create encrypted password file for the user
     user_file = f"db/passwords_{username}.json"
     enc_path = user_file + ".enc"
     dm = DataManip()
+
     if not os.path.exists(enc_path):
-        # create an empty plaintext temp and encrypt immediately
-        with open(user_file, 'w', encoding='utf-8') as f:
+        with open(user_file, "w", encoding="utf-8") as f:
             json.dump({}, f, indent=4)
         dm.encrypt_json(user_file)
+
 
 
 def register_flow():
