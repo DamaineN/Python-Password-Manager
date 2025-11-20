@@ -7,8 +7,9 @@ import hashlib
 import time
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import requests
+import logging
 
 from termcolor import colored
 from halo import Halo
@@ -23,11 +24,23 @@ USERS_FILE = "db/users.json"
 PASSWORDS_FILE = "db/passwords.json"
 SERVER_CERT = os.path.join(os.path.dirname(__file__), "server", "cert.pem")
 
+LOGFILE = "logs/activity.log"
+
+# ensure logs dir exists, then configure logging
+os.makedirs("logs", exist_ok=True)
+
+logging.basicConfig(
+    filename=LOGFILE,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
 # session & policy config
 FAILED_ATTEMPTS = {}          # in-memory attempts (per run)
-MAX_ATTEMPTS = 5              # when to apply lockout
-LOCKOUT_DURATION_MIN = 15    # minutes of lockout
-SESSION_TIMEOUT_MIN = 15     # session expiry after inactivity (minutes)
+MAX_ATTEMPTS = 3              # when to apply lockout (updated from 5 -> 3)
+LOCKOUT_DURATION_MIN = 5      # minutes of lockout (updated from 15 -> 5)
+SESSION_TIMEOUT_MIN = 15      # session expiry after inactivity (minutes)
+
 
 def ensure_db_dirs():
     try:
@@ -41,8 +54,10 @@ def ensure_db_dirs():
     # ensure system key exists (DataManip will create it on init)
     DataManip()  # instantiation ensures .syskey exists on first run
 
+
 def _enc_path(path: str) -> str:
     return path + ".enc" if not path.endswith(".enc") else path
+
 
 def load_users():
     ensure_db_dirs()
@@ -50,7 +65,7 @@ def load_users():
     dm = DataManip()
     if not os.path.exists(enc):
         # create empty dict in-memory and persist encrypted (never write plaintext)
-        tmp = {} 
+        tmp = {}
         # write to a temp file and immediately encrypt OR call encrypt_json on temp file content
         # we'll write temp file then call encrypt_json (encrypt_json expects a plaintext file path), so create temp plaintext then encrypt and remove it
         tmp_path = USERS_FILE  # like db/users.json (plaintext temporary)
@@ -61,6 +76,7 @@ def load_users():
     users = dm.decrypt_json(enc)
     return users
 
+
 def save_users(users: dict):
     dm = DataManip()
     # write plaintext to temp path, then encrypt it
@@ -68,6 +84,7 @@ def save_users(users: dict):
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(users, f, indent=4)
     dm.encrypt_json(tmp_path)
+
 
 def hash_password(password: str, salt_hex: str = None):
     """Return (hash_hex, salt_hex) using PBKDF2-HMAC-SHA256."""
@@ -78,13 +95,16 @@ def hash_password(password: str, salt_hex: str = None):
     dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 200_000)
     return dk.hex(), salt.hex()
 
+
 def verify_password(stored_hash_hex: str, password: str, salt_hex: str):
     h, _ = hash_password(password, salt_hex)
     return h == stored_hash_hex
 
+
 # Validate username: letters, numbers, underscore, 3-20 chars
 def valid_username(u):
     return bool(re.match(r"^[A-Za-z0-9_]{3,20}$", u))
+
 
 # Password policy: min 12 chars, upper, lower, digit, symbol
 def check_password_policy(pw: str):
@@ -100,8 +120,6 @@ def check_password_policy(pw: str):
         return False, "Include at least one special character."
     return True, "OK"
 
-
-# ... inside main.py ...
 
 def register():
     users = load_users()
@@ -198,12 +216,12 @@ def register():
         dm.encrypt_json(user_file)
 
 
-
 def register_flow():
     try:
         register()
     except UserExits:
         print(colored("Registration cancelled.", "red"))
+
 
 def login():
     users = load_users()
@@ -223,18 +241,29 @@ def login():
     if lock_until:
         # stored as ISO timestamp string
         until_dt = datetime.fromisoformat(lock_until)
-        if datetime.utcnow() < until_dt:
-            remaining = (until_dt - datetime.utcnow()).total_seconds() // 60
+        # handle legacy naive timestamps by assuming UTC
+        if until_dt.tzinfo is None:
+            until_dt = until_dt.replace(tzinfo=UTC)
+        now_utc = datetime.now(UTC)
+        if now_utc < until_dt:
+            remaining = (until_dt - now_utc).total_seconds() // 60
+            logging.warning(
+                f"Login attempt while account locked: user={username}, locked_until={lock_until}"
+            )
             print(colored(f"Account locked. Try again in {int(remaining)+1} minutes.", "red"))
             return None, None, None, None
         else:
             # lock expired, reset
+            logging.info(f"Lockout expired for user={username}")
             rec["failed_attempts"] = 0
             rec["lockout_until"] = None
             save_users(users)
 
     # check attempts in-memory too
     if FAILED_ATTEMPTS.get(username, 0) >= MAX_ATTEMPTS:
+        logging.warning(
+            f"Login blocked due to in-memory attempts: user={username}, attempts={FAILED_ATTEMPTS[username]}"
+        )
         print(colored("Too many failed attempts this session. Try later.", "red"))
         return None, None, None, None
 
@@ -243,6 +272,7 @@ def login():
         raise UserExits
 
     if verify_password(rec["password"], password, rec["salt"]):
+        logging.info(f"Successful password authentication for user={username}")
         # reset attempts
         rec["failed_attempts"] = 0
         rec["lockout_until"] = None
@@ -255,13 +285,17 @@ def login():
         if rec.get("2fa_secret"):
             totp = pyotp.TOTP(rec["2fa_secret"])
             code = input("Enter 6-digit 2FA code from authenticator: ").strip()
-            if not totp.verify(code, valid_window=1):
+            valid_2fa = totp.verify(code, valid_window=1)
+            if not valid_2fa:
+                logging.warning(f"Failed 2FA attempt for user={username}")
                 print(colored("Invalid 2FA code.", "red"))
                 return None, None, None, None
+            else:
+                logging.info(f"Successful 2FA verification for user={username}")
 
         # create session token with expiry
         session_token = uuid.uuid4().hex
-        session_expires = datetime.utcnow() + timedelta(minutes=SESSION_TIMEOUT_MIN)
+        session_expires = datetime.now(UTC) + timedelta(minutes=SESSION_TIMEOUT_MIN)
         # return username, role, key_bytes and session info
         print(colored(f"{dm.checkmark_} Welcome {username}! Role: {rec['role']}", "green"))
         # at the end of a successful login
@@ -272,17 +306,27 @@ def login():
         FAILED_ATTEMPTS[username] = FAILED_ATTEMPTS.get(username, 0) + 1
         # if exceeded threshold, set persistent lockout
         if rec["failed_attempts"] >= MAX_ATTEMPTS:
-            until = datetime.utcnow() + timedelta(minutes=LOCKOUT_DURATION_MIN)
+            until = datetime.now(UTC) + timedelta(minutes=LOCKOUT_DURATION_MIN)
             rec["lockout_until"] = until.isoformat()
+            logging.warning(
+                f"Account locked due to failed logins: user={username}, "
+                f"lockout_until={rec['lockout_until']}, attempts={rec['failed_attempts']}"
+            )
             print(colored(f"Too many failed attempts. Account locked for {LOCKOUT_DURATION_MIN} minutes.", "red"))
         else:
+            logging.warning(
+                f"Failed login attempt for user={username}. "
+                f"Attempts={rec['failed_attempts']}"
+            )
             print(colored("Invalid credentials.", "red"))
         save_users(users)
         return None, None, None, None
 
+
 def exit_program():
     print(colored("Exiting...", "red"))
     sys.exit()
+
 
 def start():
     ensure_db_dirs()
@@ -298,13 +342,13 @@ def start():
                     continue
                 from modules.menu import Manager
                 menu = Manager(
-                obj,
-                PASSWORDS_FILE,
-                username,
-                role,
-                key_bytes,       # matches __init__ key_bytes
-                master_password, # now matches __init__ master_password
-                session_info     # now matches __init__ session_info
+                    obj,
+                    PASSWORDS_FILE,
+                    username,
+                    role,
+                    key_bytes,       # matches __init__ key_bytes
+                    master_password, # now matches __init__ master_password
+                    session_info     # now matches __init__ session_info
                 )
                 try:
                     menu.begin()
@@ -316,6 +360,7 @@ def start():
                 pass
         except UserExits:
             exit_program()
+
 
 if __name__ == "__main__":
     start()

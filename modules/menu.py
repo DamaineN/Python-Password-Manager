@@ -7,7 +7,7 @@ import threading
 import time
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import requests
 import os
 
@@ -25,6 +25,7 @@ SESSION_TIMEOUT_MIN = 15  # must match main's SESSION_TIMEOUT_MIN
 
 # Initialize logging (module-level)
 logging.basicConfig(filename=LOGFILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 class Manager:
     """
@@ -49,17 +50,83 @@ class Manager:
         try:
             self.session_token = session_info.get("token")
             expires_raw = session_info.get("expires_at")
-            self.session_expires = datetime.fromisoformat(expires_raw) if expires_raw else datetime.now()
+            if expires_raw:
+                self.session_expires = datetime.fromisoformat(expires_raw)
+                # handle legacy naive timestamps by assuming UTC
+                if self.session_expires.tzinfo is None:
+                    self.session_expires = self.session_expires.replace(tzinfo=UTC)
+            else:
+                self.session_expires = datetime.now(UTC)
         except Exception as e:
             logging.error(f"Session info invalid: {e}")
             self.session_token = None
-            self.session_expires = datetime.now()
+            self.session_expires = datetime.now(UTC)
             
         # optional overrides
         self.encrypt_fn = encrypt_fn
         self.decrypt_fn = decrypt_fn
 
+        # --- Start the idle watchdog so expiry works even while blocked in input() ---
+        self._start_idle_watchdog()
+
+    # -----------------------
+    # Session helpers
+    # -----------------------
+    def _refresh_session_expiry(self):
+        """Slide the inactivity window forward by SESSION_TIMEOUT_MIN minutes."""
+        try:
+            self.session_expires = datetime.now(UTC) + timedelta(minutes=SESSION_TIMEOUT_MIN)
+            logging.info(
+                f"Session refreshed for user={self.user_} token={self.session_token} "
+                f"until={self.session_expires.isoformat()}"
+            )
+        except Exception as e:
+            logging.error(f"Failed to refresh session: {e}")
+
+    def _start_idle_watchdog(self):
+        """Background thread that exits the process once session_expires is passed."""
+        try:
+            self._watchdog_stop = threading.Event()
+            self._watchdog_thread = threading.Thread(
+                target=self._idle_watchdog_loop,
+                daemon=True
+            )
+            self._watchdog_thread.start()
+        except Exception as e:
+            logging.error(f"Could not start idle watchdog: {e}")
+
+    def _idle_watchdog_loop(self):
+        while not getattr(self, "_watchdog_stop", threading.Event()).is_set():
+            try:
+                if getattr(self, "session_expires", None) and datetime.now(UTC) > self.session_expires:
+                    logging.warning(
+                        f"Session expired (watchdog) for user={self.user_} token={self.session_token}"
+                    )
+                    print(colored("\nSession expired due to inactivity. Please login again.", "red"))
+                    os._exit(0)
+            except Exception as e:
+                logging.error(f"Idle watchdog error: {e}")
+                os._exit(1)
+            time.sleep(1)
+
+    def _stop_idle_watchdog(self):
+        try:
+            if hasattr(self, "_watchdog_stop"):
+                self._watchdog_stop.set()
+        except Exception:
+            pass
+
+    def _ensure_session_active(self):
+        """Quick check used at safe points (not strictly required with watchdog)."""
+        if datetime.now(UTC) > self.session_expires:
+            logging.warning(f"Session expired (foreground check) for user={self.user_}")
+            print(colored("Session expired due to inactivity. Please login again.", "red"))
+            self._stop_idle_watchdog()
+            sys.exit(0)
+
     def begin(self):
+        self._ensure_session_active()
+
         try:
             choice = self.menu_prompt()
         except UserExits:
@@ -69,25 +136,27 @@ class Manager:
             print(colored("Invalid input or unexpected error. Please try again.", "red"))
             return self.begin()
 
-        # populate salts on menu begin (best-effort)
+        self._refresh_session_expiry()
+
         try:
             self._populate_salts_from_server()
         except Exception as e:
             logging.warning(f"Failed to populate salts: {e}")
 
-        # Validate menu choice
         valid_choices = {'1', '2', '3', '4', '5', '6', '7'}
         if choice not in valid_choices:
             print(colored("Invalid menu option. Please select 1–7.", "red"))
             return self.begin()
 
-        if choice == '4':  # User Exits
+        if choice == '4':
             print(colored("Exiting program...", "red"))
+            self._stop_idle_watchdog()
             sys.exit()
 
-        if choice == '1':  # add or update a password
+        if choice == '1':
             try:
                 self.update_db()
+                self._refresh_session_expiry()
             except UserExits:
                 raise
             except Exception as e:
@@ -95,7 +164,7 @@ class Manager:
                 print(colored("An error occurred while updating password. Please try again.", "red"))
             return self.begin()
 
-        elif choice == '2':  # look up a stored password
+        elif choice == '2':
             try:
                 website, password = self.load_password()
                 if not website or not password:
@@ -128,6 +197,8 @@ class Manager:
                         logging.error(f"Clipboard copy failed: {e}")
                         print(colored("Unexpected error copying password to clipboard.", "red"))
 
+                self._refresh_session_expiry()
+
             except UserExits:
                 raise
             except PasswordFileDoesNotExist:
@@ -137,9 +208,11 @@ class Manager:
                 print(colored("An error occurred while retrieving password. Please try again.", "red"))
             return self.begin()
 
-        elif choice == '3':  # Delete a single password
+        elif choice == '3':
             try:
-                return self.delete_password()
+                out = self.delete_password()
+                self._refresh_session_expiry()
+                return out
             except UserExits:
                 raise
             except Exception as e:
@@ -147,12 +220,16 @@ class Manager:
                 print(colored("An error occurred while deleting password. Please try again.", "red"))
                 return self.begin()
 
-        elif choice == '5':  # Delete DB of Passwords
+        elif choice == '5':
             if self.role_ != 'admin':
+                logging.warning(
+                    f"Unauthorized attempt to access admin function 'delete_db' by user={self.user_}"
+                )
                 print(colored("Permission denied: Admin only.", "red"))
                 return self.begin()
             try:
                 self.delete_db()
+                self._refresh_session_expiry()
             except MasterPasswordIncorrect:
                 print(colored(f"{self.obj_.x_mark_} Master password is incorrect {self.obj_.x_mark_}", "red"))
             except UserExits:
@@ -162,12 +239,16 @@ class Manager:
                 print(colored("An unexpected error occurred while deleting DB.", "red"))
             return self.begin()
 
-        elif choice == '6':  # delete ALL data (admin)
+        elif choice == '6':
             if self.role_ != 'admin':
+                logging.warning(
+                    f"Unauthorized attempt to access admin function 'delete_all_data' by user={self.user_}"
+                )
                 print(colored("Permission denied: Admin only.", "red"))
                 return self.begin()
             try:
                 self.delete_all_data()
+                self._refresh_session_expiry()
             except MasterPasswordIncorrect:
                 print(colored(f"{self.obj_.x_mark_} Master password is incorrect {self.obj_.x_mark_}", "red"))
             except UserExits:
@@ -177,17 +258,20 @@ class Manager:
                 print(colored("An unexpected error occurred while deleting all data.", "red"))
             return self.begin()
 
-        elif choice == '7':  # admin: view logs
+        elif choice == '7':
             if self.role_ != 'admin':
+                logging.warning(
+                    f"Unauthorized attempt to access admin function 'view_logs' by user={self.user_}"
+                )
                 print(colored("Permission denied: Admin only.", "red"))
                 return self.begin()
             try:
                 self.view_logs()
+                self._refresh_session_expiry()
             except Exception as e:
                 logging.error(f"Error viewing logs: {e}")
                 print(colored("Failed to read logs.", "red"))
             return self.begin()
-
 
     def menu_prompt(self):
         print(colored("\n\t*Enter 'exit' at any point to exit.*\n", "magenta"))
@@ -234,6 +318,7 @@ class Manager:
             return self.__return_generated_password(website)
         except UserExits:
             print(colored("Exiting...", "red"))
+            self._stop_idle_watchdog()
             sys.exit()
 
     # --- input validation for website names
@@ -280,15 +365,20 @@ class Manager:
                 if password.lower().strip() == "exit":
                     raise UserExits
                 else:
-                    # simple password strength hint (not enforced)
                     if len(password) < 8:
                         print(colored("Warning: password shorter than 8 characters.", "yellow"))
                         self._server_encrypt(website, password)
                         logging.info(f"{self.user_} stored/updated password for {website}")
+                        self._refresh_session_expiry()
+                    else:
+                        self._server_encrypt(website, password)
+                        logging.info(f"{self.user_} stored/updated password for {website}")
+                        self._refresh_session_expiry()
             elif gen_question.lower().strip() == 'y':
                 password = self.__return_generated_password(website)
                 self._server_encrypt(website, password)
                 logging.info(f"{self.user_} generated and stored password for {website}")
+                self._refresh_session_expiry()
 
     def load_password(self):
         website = input("Enter website for the password you want to retrieve: ").strip()
@@ -309,6 +399,7 @@ class Manager:
                 return self.load_password()
                 
             logging.info(f"{self.user_} retrieved password for {website}")
+            self._refresh_session_expiry()
             return website, plaintext  # <-- return a tuple instead of just plaintext
 
         except requests.HTTPError as e:
@@ -318,7 +409,6 @@ class Manager:
             print(colored(f"✗ Unexpected error: {e}", "red"))
             return self.load_password()
 
-
     def delete_db(self):
         confirmation = input("Are you sure you want to delete the password file? (Y/N) ")
         if confirmation.lower().strip() == 'y':
@@ -326,6 +416,7 @@ class Manager:
                 self.obj_.delete_db(self.filename_)
                 logging.warning(f"{self.user_} deleted password DB")
                 print(colored(f"{self.obj_.checkmark_} Password Data Deleted successfully. {self.obj_.checkmark_}", "green"))
+                self._refresh_session_expiry()
                 return self.begin()
             except PasswordFileDoesNotExist:
                 print(colored(f"{self.obj_.x_mark_} DB not found. Try adding a password {self.obj_.x_mark_}", "red"))
@@ -369,8 +460,8 @@ class Manager:
                 resp.raise_for_status()
                 print(colored(f"✓ Password for {website} deleted successfully from server.", "green"))
                 logging.warning(f"{self.user_} deleted password for {website} from server")
-                # Remove salt from local memory if present
                 self.salts.pop(website, None)
+                self._refresh_session_expiry()
                 return self.begin()
             except requests.HTTPError as e:
                 if resp.status_code == 404:
@@ -394,8 +485,8 @@ class Manager:
                 resp.raise_for_status()
                 logging.warning(f"{self.user_} deleted ALL passwords from server")
                 print(colored(f"✓ All passwords deleted successfully from server. {self.obj_.checkmark_}", "green"))
-                # Clear local salts since all passwords are gone
                 self.salts.clear()
+                self._refresh_session_expiry()
             except requests.HTTPError as e:
                 print(colored(f"✗ Server delete all passwords failed: {e}\nResponse content: {resp.text}", "red"))
             except Exception as e:
@@ -410,9 +501,7 @@ class Manager:
             raise UserExits
         
         else:
-            # for empty or invalid input
             return self.delete_db()
-
 
     def delete_all_data(self):
         confirmation = input("Are you sure you want to delete ALL data including user accounts? (Y/N) ")
@@ -427,6 +516,7 @@ class Manager:
                 logging.critical(f"{self.user_} deleted ALL data including users on server")
                 print(colored(f"✓ All data deleted successfully from server. {self.obj_.checkmark_}", "green"))
                 self.salts.clear()
+                self._stop_idle_watchdog()
                 sys.exit()
             except requests.HTTPError as e:
                 print(colored(f"✗ Server delete all data failed: {e}", "red"))
@@ -446,9 +536,10 @@ class Manager:
         print(colored("---- AUDIT LOGS ----", "yellow"))
         try:
             with open(LOGFILE, 'r') as f:
-                lines = f.readlines()[-200:]  # show last 200 entries
+                lines = f.readlines()[-200:]
                 for ln in lines:
                     print(ln.strip())
+            self._refresh_session_expiry()
         except FileNotFoundError:
             print(colored("No logs available.", "yellow"))
             
@@ -472,17 +563,16 @@ class Manager:
                 j = dm.decrypt_json(enc_path)
             else:
                 j = {}
-            # set salt (ensure website entry exists)
             if website not in j:
                 j[website] = {}
             j[website]["salt"] = salt
-            # persist via encrypt_json
             tmp_path = user_file
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(j, f, indent=4)
             dm.encrypt_json(tmp_path)
 
             print(colored(f"✓ Password for {website} stored securely on server.", "green"))
+            self._refresh_session_expiry()
         except Exception as e:
             print(colored(f"✗ Server encrypt failed: {e}\n", "red"))
 
@@ -500,9 +590,9 @@ class Manager:
             if decrypted is None:
                 print(colored(f"✗ Decrypt returned no data. Server response: {data}", "red"))
                 return None
+            self._refresh_session_expiry()
             return decrypted
         except requests.HTTPError as e:
-            # show status + content for debugging
             try:
                 content = resp.text
             except Exception:
